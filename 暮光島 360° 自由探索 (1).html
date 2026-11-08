@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>暮光島 360° 自由探索</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--hud:rgba(26,18,48,.62);--ink:#f7e8cf;--glow:#ffb85c;box-sizing:border-box}
+@media (prefers-color-scheme:dark){:root{--hud:rgba(12,9,28,.72)}}
+:root[data-theme="dark"]{--hud:rgba(12,9,28,.72)}
+html,body{height:100%;margin:0;background:#1b1530;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;font-family:"Noto Serif TC","PMingLiU",serif;color:var(--ink)}
+canvas{position:fixed;z-index:0;inset:0;width:100%;height:100%;display:block;cursor:grab}
+canvas:active{cursor:grabbing}
+.p{position:fixed;z-index:2;background:var(--hud);padding:8px 14px;border-radius:10px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-size:15px;line-height:1.5;pointer-events:none}
+#hud{left:14px;top:calc(14px + env(safe-area-inset-top,0px));display:flex;gap:14px;align-items:baseline}
+#hud b{font-size:18px;font-weight:700}
+#cnt{color:var(--glow)}
+#compass{left:50%;transform:translateX(-50%);top:calc(14px + env(safe-area-inset-top,0px));font-size:14px;white-space:nowrap}
+#hint{left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));font-size:14px;text-align:center;width:max-content;max-width:88vw;transition:opacity 1s}
+#toast{left:50%;top:22%;transform:translateX(-50%);font-size:20px;font-weight:700;opacity:0;transition:opacity .5s;text-align:center;max-width:86vw}
+#talk{left:50%;top:31%;transform:translateX(-50%);opacity:0;transition:opacity .4s;text-align:center;max-width:84vw;font-size:16px}
+#stick{position:fixed;z-index:3;left:calc(22px + env(safe-area-inset-left,0px));bottom:calc(26px + env(safe-area-inset-bottom,0px));width:128px;height:128px;box-sizing:border-box;border:2px solid rgba(255,232,200,.38);border-radius:50%;background:rgba(255,232,200,.1);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);touch-action:none;cursor:pointer}
+#stick i{position:absolute;left:38px;top:38px;width:48px;height:48px;border-radius:50%;background:rgba(255,214,150,.5);border:1px solid rgba(255,240,215,.7);pointer-events:none}
+@media (max-width:560px){#hint{bottom:calc(170px + env(safe-area-inset-bottom,0px))}}
+@media (max-width:560px){#compass{top:calc(60px + env(safe-area-inset-top,0px))}}
+</style>
+</head>
+<body>
+<div id="hud" class="p"><b>暮光島</b><span id="cnt">光燈 0 / 8</span></div>
+<div id="compass" class="p">朝向 北 000°</div>
+<div id="hint" class="p"></div>
+<div id="toast" class="p"></div>
+<div id="talk" class="p"></div>
+<div id="stick"><i></i></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+var R=new THREE.WebGLRenderer({antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));R.setSize(innerWidth,innerHeight);
+var cv=R.domElement;document.body.appendChild(cv);
+var S=new THREE.Scene();S.fog=new THREE.FogExp2(0x7a4a6a,0.014);
+var C=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,.1,700);C.rotation.order='YXZ';
+var seed=7;function rnd(){return (seed=(seed*16807)%2147483647)/2147483647}
+function glowTex(c1){var c=document.createElement('canvas');c.width=c.height=64;var g=c.getContext('2d'),r=g.createRadialGradient(32,32,0,32,32,32);
+r.addColorStop(0,'rgba(255,255,255,1)');r.addColorStop(.25,c1);r.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=r;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)}
+
+/* sky dome, stars, moon */
+var sky=new THREE.Mesh(new THREE.SphereGeometry(450,32,16),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,fog:false,
+vertexShader:'varying vec3 p;void main(){p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+fragmentShader:'varying vec3 p;void main(){float h=normalize(p).y;vec3 a=vec3(.95,.5,.42),b=vec3(.42,.25,.55),c=vec3(.06,.05,.17);vec3 col=h<0.?mix(a,vec3(.3,.17,.33),smoothstep(0.,-.4,h)):mix(a,mix(b,c,smoothstep(.12,.65,h)),smoothstep(0.,.28,h));gl_FragColor=vec4(col,1.);}'}));
+sky.renderOrder=-1;S.add(sky);
+var sp=[];for(var i=0;i<700;i++){var u=rnd()*6.283,v=.08+rnd()*.92,r=Math.sqrt(1-v*v)*420;sp.push(Math.cos(u)*r,v*420,Math.sin(u)*r)}
+var sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(sp,3));
+sky.add(new THREE.Points(sg,new THREE.PointsMaterial({size:1.7,sizeAttenuation:false,color:0xffffff,fog:false,transparent:true,opacity:.85})));
+var moon=new THREE.Mesh(new THREE.SphereGeometry(9,24,16),new THREE.MeshBasicMaterial({color:0xf3eed8,fog:false}));moon.position.set(-150,170,-330);sky.add(moon);
+var mh=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex('rgba(200,210,255,.45)'),blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));mh.scale.set(80,80,1);moon.add(mh);
+
+/* terrain */
+function hgt(x,z){var d=Math.hypot(x,z),f=Math.max(0,1-d/66);
+var y=(3.5+Math.sin(x*.09)*Math.cos(z*.08)*2.2+Math.sin(x*.21+z*.17)*.6)*Math.min(1,f*2.2)-1.5;
+var k=Math.max(0,1-d/9);return y*(1-k)+2.2*k}
+var tg=new THREE.PlaneGeometry(170,170,110,110);tg.rotateX(-Math.PI/2);
+var tp=tg.attributes.position,col=[],cc=new THREE.Color();
+for(var i=0;i<tp.count;i++){var x=tp.getX(i),z=tp.getZ(i),y=hgt(x,z);tp.setY(i,y);
+cc.set(y<.25?0xb89870:y<1.4?0x4d7848:0x6b8a4c);cc.offsetHSL(0,0,(rnd()-.5)*.06);col.push(cc.r,cc.g,cc.b)}
+tg.setAttribute('color',new THREE.Float32BufferAttribute(col,3));tg.computeVertexNormals();
+S.add(new THREE.Mesh(tg,new THREE.MeshLambertMaterial({vertexColors:true,flatShading:true})));
+var water=new THREE.Mesh(new THREE.PlaneGeometry(1000,1000).rotateX(-Math.PI/2),new THREE.MeshPhongMaterial({color:0x2b3f7a,specular:0xff9a6a,shininess:80,transparent:true,opacity:.88}));
+S.add(water);
+
+/* lights */
+S.add(new THREE.HemisphereLight(0xffa77a,0x2a2050,.75));
+var sun=new THREE.DirectionalLight(0xffa56b,.85);sun.position.set(-40,18,-30);S.add(sun);
+var tl=new THREE.PointLight(0xff9a5a,1,26);tl.position.set(0,4.2,1.2);S.add(tl);
+
+/* trees and rocks (instanced) */
+var D=new THREE.Object3D(),N=170;
+var fol=new THREE.InstancedMesh(new THREE.ConeGeometry(1.8,6,7),new THREE.MeshLambertMaterial({flatShading:true}),N);
+var trk=new THREE.InstancedMesh(new THREE.CylinderGeometry(.22,.3,1.6,6),new THREE.MeshLambertMaterial({color:0x4a3040}),N);
+for(var n=0;n<N;){var a=rnd()*6.283,r=13+rnd()*46,x=Math.cos(a)*r,z=Math.sin(a)*r,y=hgt(x,z);if(y<.7)continue;
+var s=.8+rnd()*.9;D.rotation.set(0,rnd()*6,0);D.scale.set(s,s,s);
+D.position.set(x,y+.8*s,z);D.updateMatrix();trk.setMatrixAt(n,D.matrix);
+D.position.set(x,y+3.6*s,z);D.updateMatrix();fol.setMatrixAt(n,D.matrix);
+cc.set(0x2d5a4a).offsetHSL((rnd()-.5)*.06,0,(rnd()-.5)*.08);fol.setColorAt(n,cc);n++}
+S.add(fol,trk);
+var M=46,rocks=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),new THREE.MeshLambertMaterial({color:0x6c5f82,flatShading:true}),M);
+for(var n=0;n<M;){var a=rnd()*6.283,r=8+rnd()*52,x=Math.cos(a)*r,z=Math.sin(a)*r,y=hgt(x,z);if(y<.1)continue;
+var s=.4+rnd()*1.1;D.position.set(x,y+s*.2,z);D.rotation.set(rnd()*3,rnd()*3,rnd()*3);D.scale.set(s*1.3,s*.8,s);D.updateMatrix();rocks.setMatrixAt(n,D.matrix);n++}
+S.add(rocks);
+
+/* torii gate */
+var red=new THREE.MeshLambertMaterial({color:0xc4402f,emissive:0x2a0804}),g=new THREE.Group();
+[-2.3,2.3].forEach(function(x){var p=new THREE.Mesh(new THREE.CylinderGeometry(.28,.34,5.4,10),red);p.position.set(x,2.7,0);g.add(p)});
+var b1=new THREE.Mesh(new THREE.BoxGeometry(7.6,.5,.7),red);b1.position.y=5.5;g.add(b1);
+var b2=new THREE.Mesh(new THREE.BoxGeometry(5.4,.32,.45),red);b2.position.y=4.3;g.add(b2);
+var cap=new THREE.Mesh(new THREE.BoxGeometry(8.4,.22,.9),new THREE.MeshLambertMaterial({color:0x2a2238}));cap.position.y=5.85;g.add(cap);
+g.position.set(0,hgt(0,0)-.1,0);S.add(g);
+
+/* spirit lamps (goal) */
+var orbs=[],TOTAL=8,rad=[18,32,26,42,22,38,30,44],ot=glowTex('rgba(255,170,70,.6)');
+for(var i=0;i<TOTAL;i++){var a=i*.785+rnd()*.4,r=rad[i],x,z;
+do{x=Math.cos(a)*r;z=Math.sin(a)*r;r-=2}while(hgt(x,z)<.6);
+var gr=new THREE.Group(),y=Math.max(hgt(x,z),0)+1.7;
+gr.add(new THREE.Mesh(new THREE.SphereGeometry(.28,16,12),new THREE.MeshBasicMaterial({color:0xffe2a0,fog:false})));
+var h=new THREE.Sprite(new THREE.SpriteMaterial({map:ot,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));h.scale.set(3.4,3.4,1);gr.add(h);
+gr.position.set(x,y,z);S.add(gr);orbs.push({g:gr,y:y,i:i,t0:-1,done:false})}
+
+/* fireflies */
+var FN=240,fb=[],fp=new Float32Array(FN*3);
+for(var i=0;i<FN;i++){var a=rnd()*6.283,r=rnd()*52;fb.push([Math.cos(a)*r,.8+rnd()*5,Math.sin(a)*r,rnd()*6])}
+var fg=new THREE.BufferGeometry();fg.setAttribute('position',new THREE.BufferAttribute(fp,3));
+S.add(new THREE.Points(fg,new THREE.PointsMaterial({map:glowTex('rgba(255,210,110,.5)'),size:.9,color:0xffd88a,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false})));
+
+/* controls */
+var P=new THREE.Vector3(0,hgt(0,30)+1.7,30),yaw=0,pitch=-.04,keys={},looks={},joy=null,stick=document.getElementById('stick'),knob=stick.firstChild,hint=document.getElementById('hint');
+var touch=matchMedia('(pointer:coarse)').matches;
+hint.textContent=touch?'拖曳畫面環顧四周，用左下角搖桿移動，找出 8 盞靈燈':'拖曳畫面環顧 360°，左下角搖桿或 WASD 移動，Shift 加速，滾輪縮放，找出 8 盞靈燈';
+var hidden=false;function hideHint(){if(!hidden){hidden=true;setTimeout(function(){hint.style.opacity=0},5000)}}
+addEventListener('keydown',function(e){keys[e.code]=1;hideHint()});addEventListener('keyup',function(e){keys[e.code]=0});
+cv.addEventListener('pointerdown',function(e){cv.setPointerCapture(e.pointerId);hideHint();
+looks[e.pointerId]=[e.clientX,e.clientY]});
+cv.addEventListener('pointermove',function(e){
+if(looks[e.pointerId]){var p=looks[e.pointerId];yaw+=(e.clientX-p[0])*.005;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-p[1])*.005));p[0]=e.clientX;p[1]=e.clientY}});
+function up(e){delete looks[e.pointerId]}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+function jset(e){var r=stick.getBoundingClientRect(),R0=r.width/2-24,dx=(e.clientX-r.left-r.width/2)/R0,dy=(e.clientY-r.top-r.height/2)/R0,m=Math.hypot(dx,dy);if(m>1){dx/=m;dy/=m}joy.dx=dx;joy.dy=dy;knob.style.transform='translate('+dx*R0+'px,'+dy*R0+'px)'}
+stick.addEventListener('pointerdown',function(e){e.preventDefault();stick.setPointerCapture(e.pointerId);hideHint();joy={id:e.pointerId,dx:0,dy:0};jset(e)});
+stick.addEventListener('pointermove',function(e){if(joy&&joy.id===e.pointerId)jset(e)});
+function jend(e){if(joy&&joy.id===e.pointerId){joy=null;knob.style.transform='none'}}
+stick.addEventListener('pointerup',jend);stick.addEventListener('pointercancel',jend);
+cv.addEventListener('wheel',function(e){e.preventDefault();C.fov=Math.max(45,Math.min(90,C.fov+e.deltaY*.03));C.updateProjectionMatrix()},{passive:false});
+addEventListener('resize',function(){R.setSize(innerWidth,innerHeight);C.aspect=innerWidth/innerHeight;C.updateProjectionMatrix()});
+
+/* hud */
+var cnt=document.getElementById('cnt'),cmp=document.getElementById('compass'),toast=document.getElementById('toast'),tt,got=0;
+var dirs=['北','東北','東','東南','南','西南','西','西北'];
+function say(m){toast.textContent=m;toast.style.opacity=1;clearTimeout(tt);tt=setTimeout(function(){toast.style.opacity=0},2600)}
+
+/* spirit npcs */
+var SP=[],spCd=3,talk=document.getElementById('talk'),SPC=[0x9fe8ff,0xffb3d9,0xc9ff9f,0xd8c2ff],SPN=['小螢','雲朵','青苔','夜露','星屑','暮鈴'],
+SPL=['今晚的風很溫柔。','月亮升起時，螢火蟲最多。','鳥居會回應燈光，你知道嗎？','我是從樹影裡長出來的。','別走太快，島很小，路卻很長。','水邊太冷，我不去。','這座島一直在等人點亮它。'],
+spB=new THREE.SphereGeometry(.45,16,12),spC=new THREE.ConeGeometry(.42,.9,12),spE=new THREE.SphereGeometry(.07,8,6),spEm=new THREE.MeshBasicMaterial({color:0x2a2238,fog:false}),spTex=glowTex('rgba(255,255,255,.5)');
+function spawnSpirit(){var x,z,n=0;do{var a=Math.random()*6.283,r=9+Math.random()*16;x=P.x+Math.cos(a)*r;z=P.z+Math.sin(a)*r;n++}while((hgt(x,z)<.8||Math.hypot(x,z)>55)&&n<15);if(n>=15)return;
+var c=SPC[Math.floor(Math.random()*4)],gr=new THREE.Group(),mt=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.88,fog:false});
+var hd=new THREE.Mesh(spB,mt);hd.position.y=.55;gr.add(hd);
+var tail=new THREE.Mesh(spC,mt);tail.position.y=.1;tail.rotation.x=Math.PI;gr.add(tail);
+[-.16,.16].forEach(function(ex){var e=new THREE.Mesh(spE,spEm);e.position.set(ex,.62,.4);gr.add(e)});
+var gl=new THREE.Sprite(new THREE.SpriteMaterial({map:spTex,color:c,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));gl.scale.set(2.6,2.6,1);gl.position.y=.4;gr.add(gl);
+gr.scale.setScalar(.001);S.add(gr);
+SP.push({g:gr,x:x,z:z,tx:x,tz:z,age:0,life:35+Math.random()*35,ph:Math.random()*6,name:SPN[Math.floor(Math.random()*SPN.length)],hint:Math.random()<.5,line:SPL[Math.floor(Math.random()*SPL.length)],wait:0})}
+function spText(q){if(!q.hint)return q.line;var b=null,bd=1e9;orbs.forEach(function(o){if(o.done)return;var d=Math.hypot(o.g.position.x-P.x,o.g.position.z-P.z);if(d<bd){bd=d;b=o}});
+if(!b)return '島上的燈都亮了，謝謝你。';var h2=(Math.atan2(b.g.position.x-P.x,-(b.g.position.z-P.z))*180/Math.PI+360)%360;return '往'+dirs[Math.round(h2/45)%8]+'走，大約 '+Math.round(bd)+' 步，有一盞燈還沒亮。'}
+function updSpirits(dt,t){spCd-=dt;if(spCd<=0){if(SP.length<4)spawnSpirit();spCd=5+Math.random()*7}
+var near=null,nd=99;
+for(var i=SP.length-1;i>=0;i--){var q=SP[i];q.age+=dt;var sc=Math.min(1,q.age/1.2,(q.life-q.age)/1.2);
+if(q.age>1&&sc<=0){S.remove(q.g);SP.splice(i,1);continue}
+var pd=Math.hypot(P.x-q.x,P.z-q.z),ty=q.g.rotation.y;
+if(pd<7){ty=Math.atan2(P.x-q.x,P.z-q.z)}
+else{q.wait-=dt;var dx=q.tx-q.x,dz=q.tz-q.z,dd=Math.hypot(dx,dz);
+if(dd<.4){if(q.wait<=0){var a=Math.random()*6.283,r=3+Math.random()*5,nx=q.x+Math.cos(a)*r,nz=q.z+Math.sin(a)*r;if(hgt(nx,nz)>.8&&Math.hypot(nx,nz)<55){q.tx=nx;q.tz=nz}q.wait=1+Math.random()*2}}
+else{q.x+=dx/dd*.9*dt;q.z+=dz/dd*.9*dt;ty=Math.atan2(dx,dz)}}
+var da=((ty-q.g.rotation.y+Math.PI)%6.2832+6.2832)%6.2832-Math.PI;q.g.rotation.y+=da*Math.min(1,dt*4);
+q.g.position.set(q.x,Math.max(hgt(q.x,q.z),0)+1.3+Math.sin(t*2+q.ph)*.15,q.z);q.g.scale.setScalar(Math.max(sc,.001));
+if(pd<nd){nd=pd;near=q}}
+if(near&&nd<6){talk.textContent=near.name+'：'+spText(near);talk.style.opacity=1}else talk.style.opacity=0}
+spawnSpirit();spawnSpirit();
+
+var clock=new THREE.Clock(),lastH=-1;
+function tick(){requestAnimationFrame(tick);
+var dt=Math.min(clock.getDelta(),.05),t=clock.elapsedTime;
+var f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0),s=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0);
+if(joy){f-=joy.dy;s+=joy.dx}
+var m=Math.hypot(f,s);if(m>1){f/=m;s/=m}
+var v=(keys.ShiftLeft||keys.ShiftRight?11:6)*dt,sy=Math.sin(yaw),cy=Math.cos(yaw);
+var nx=P.x+(-sy*f+cy*s)*v,nz=P.z+(-cy*f-sy*s)*v;
+if(hgt(nx,nz)>-.15&&Math.hypot(nx,nz)<64){P.x=nx;P.z=nz}
+else if(hgt(nx,P.z)>-.15){P.x=nx}else if(hgt(P.x,nz)>-.15){P.z=nz}
+P.y+=(Math.max(hgt(P.x,P.z),0)+1.7-P.y)*Math.min(1,dt*10);
+C.position.copy(P);C.rotation.set(pitch,yaw,0);sky.position.copy(P);
+var hd=Math.round(((-yaw*180/Math.PI)%360+360)%360);
+if(hd!==lastH){lastH=hd;cmp.textContent='朝向 '+dirs[Math.round(hd/45)%8]+' '+('00'+hd).slice(-3)+'°'}
+for(var i=0;i<orbs.length;i++){var o=orbs[i];if(o.gone)continue;
+if(!o.done){o.g.position.y=o.y+Math.sin(t*1.6+o.i)*.3;o.g.children[1].scale.setScalar(3.4+Math.sin(t*3+o.i)*.4);
+if(o.g.position.distanceTo(C.position)<3){o.done=true;o.t0=t;got++;cnt.textContent='光燈 '+got+' / '+TOTAL;
+say(got===TOTAL?'八盞燈全部亮起，島嶼醒來了':'點亮了一盞燈（'+got+'/'+TOTAL+'）')}}
+else{var k=(t-o.t0)/.7;if(k>=1){S.remove(o.g);o.gone=true}else o.g.scale.setScalar((1+3*k)*(1-k))}}
+tl.intensity+=((got===TOTAL?3:1)-tl.intensity)*dt;
+for(var i=0;i<FN;i++){var b=fb[i];fp[i*3]=b[0]+Math.sin(t*.5+b[3])*1.6;fp[i*3+1]=b[1]+Math.sin(t*.8+b[3]*2)*.7;fp[i*3+2]=b[2]+Math.cos(t*.45+b[3])*1.6}
+fg.attributes.position.needsUpdate=true;
+water.position.y=Math.sin(t*.8)*.04;
+updSpirits(dt,t);
+R.render(S,C)}
+tick();
+})();
+</script>
+</body>
+</html>
